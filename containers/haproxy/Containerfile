@@ -1,0 +1,65 @@
+# =============================================================================
+# HAProxy + haterm for the Peak EWMA test (one image, three roles)
+#
+#   lb      HAProxy load balancer with the Lua Peak EWMA prototype
+#   shim    HAProxy in front of one haterm, sets the response delay "t"
+#   haterm  HAProxy's dummy HTTP server for benchmarks
+#
+# Build from the repository root:
+#   podman build -f containers/haproxy/Containerfile -t peak-ewma-hap .
+#
+# HAProxy comes from src/haproxy.tar when it exists (a "git archive" of a
+# local branch, see "scripts/local.sh src"), otherwise from HAPROXY_REF.
+# =============================================================================
+
+ARG ALPINE_VERSION=3.23
+
+FROM docker.io/alpine:${ALPINE_VERSION} AS builder
+
+# a branch or a tag of HAProxy, haterm needs 3.4 or newer
+ARG HAPROXY_REF=v3.5-dev9
+ARG JOBS=4
+
+RUN apk add --no-cache \
+    git \
+    make \
+    gcc \
+    libc-dev \
+    linux-headers \
+    lua5.4-dev
+
+COPY src/ /build/src/
+
+RUN if [ -f /build/src/haproxy.tar ]; then \
+        tar -C /build -xf /build/src/haproxy.tar; \
+    else \
+        git clone --depth 1 --branch "${HAPROXY_REF}" \
+            https://github.com/haproxy/haproxy.git /build/haproxy; \
+    fi && \
+    make -C /build/haproxy -j"${JOBS}" \
+        TARGET=linux-musl CPU=generic \
+        USE_LUA=1 LUA_LIB=/usr/lib/lua5.4 LUA_INC=/usr/include/lua5.4 \
+        USE_PROMEX=1 USE_SLZ=1 \
+        all haterm && \
+    /build/haproxy/haproxy -vv | head -3
+
+# -----------------------------------------------------------------------------
+FROM docker.io/alpine:${ALPINE_VERSION}
+
+RUN apk add --no-cache lua5.4-libs socat && \
+    adduser -D -H -u 1001 -G root haproxy && \
+    mkdir -p /etc/haproxy /var/run/haproxy && \
+    chown 1001:0 /var/run/haproxy && \
+    chmod 775 /var/run/haproxy
+
+COPY --from=builder /build/haproxy/haproxy /usr/local/sbin/haproxy
+COPY --from=builder /build/haproxy/haterm /usr/local/sbin/haterm
+COPY config/lb.cfg config/shim.cfg /etc/haproxy/
+COPY lua/peak_ewma.lua /etc/haproxy/
+COPY containers/haproxy/entrypoint.sh /usr/local/bin/entrypoint.sh
+
+USER 1001
+EXPOSE 8080 8081 8082 8083 8084 8085 8086 8087 8088 8404
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+CMD ["lb"]

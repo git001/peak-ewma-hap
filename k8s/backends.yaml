@@ -1,0 +1,98 @@
+# The test servers: haterm + a shim that sets the delay. Every SLOW_EVERY-th
+# pod (be-7, be-15, ...) answers after DELAY_SLOW ms, the others after
+# DELAY_FAST ms; keep "replicas" equal to BE_COUNT in lb.yaml. CPU requests
+# equal the limits (Guaranteed QoS); at moderate load a server gets well
+# below 100 requests per second, far from its limit, so CFS throttling does
+# not add latency.
+#
+# Placement: on the node pool "be" (label nodepool=be, check the label of
+# your MKS nodes with "kubectl get nodes --show-labels"), spread evenly over
+# its nodes.
+apiVersion: v1
+kind: Service
+metadata:
+  name: be
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: peak-ewma-be
+  ports:
+    - name: http
+      port: 9001
+    - name: cli
+      port: 9101
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: be
+spec:
+  serviceName: be
+  replicas: 32
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: peak-ewma-be
+  template:
+    metadata:
+      labels:
+        app: peak-ewma-be
+    spec:
+      nodeSelector:
+        nodepool: be
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: peak-ewma-be
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: haterm
+          image: peak-ewma-hap
+          args: ["haterm"]
+          env:
+            - name: NBTHREAD
+              value: "1"
+            - name: HATERM_LISTEN
+              value: "127.0.0.1:8001"
+          resources:
+            requests: { cpu: 200m, memory: 64Mi }
+            limits: { cpu: 200m, memory: 128Mi }
+        - name: shim
+          image: peak-ewma-hap
+          args: ["shim"]
+          env:
+            - name: NBTHREAD
+              value: "1"
+            - name: SLOW_EVERY
+              value: "8"
+            - name: DELAY_FAST
+              value: "5"
+            - name: DELAY_SLOW
+              value: "50"
+            - name: SIZE
+              value: "1k"
+            - name: SHIM_PORT
+              value: "9001"
+            - name: SHIM_CLI_PORT
+              value: "9101"
+            - name: HATERM_ADDR
+              value: "127.0.0.1:8001"
+          ports:
+            - name: http
+              containerPort: 9001
+            - name: cli
+              containerPort: 9101
+          readinessProbe:
+            tcpSocket:
+              port: 9001
+            periodSeconds: 2
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+            limits: { cpu: 100m, memory: 128Mi }

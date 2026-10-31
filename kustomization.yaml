@@ -1,0 +1,27 @@
+# Everything for MKS (or any cluster):
+#   kubectl apply -k .
+# The bench Job waits until the load balancer sees all servers UP. To run
+# it again:
+#   kubectl -n peak-ewma delete job bench && kubectl apply -k .
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: peak-ewma
+resources:
+  - k8s/namespace.yaml
+  - k8s/backends.yaml
+  - k8s/lb.yaml
+  - k8s/bench-job.yaml
+configMapGenerator:
+  - name: bench
+    files:
+      - scripts/bench.sh
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  # set to the pushed images, e.g. ghcr.io/<user>/peak-ewma-hap:<tag>
+  - name: peak-ewma-hap
+    newName: ghcr.io/git001/peak-ewma-hap
+    newTag: latest
+  - name: peak-ewma-h2load
+    newName: ghcr.io/git001/peak-ewma-h2load
+    newTag: latest

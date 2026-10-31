@@ -1,0 +1,70 @@
+# One benchmark run. The summary is printed to the log; the pod then stays
+# KEEP seconds so the results can be copied:
+#   kubectl -n peak-ewma cp <pod>:/results ./results
+# Alone on the node pool "load", one CPU per h2load thread (THREADS).
+# The load is chosen so that the load balancer keeps idle CPU (Idle_pct in
+# "show info" above 30%): with -c 64 -m 4 it was saturated for every
+# algorithm, and the test measured its CPU instead of the algorithm.
+# 32 clients: kube-proxy spreads the connections over the two load
+# balancers, about 16 each, as in the single load balancer runs.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: peak-ewma-bench
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        nodepool: load
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: h2load
+          image: peak-ewma-h2load
+          command: ["/bin/sh", "-c", "sh /bench/bench.sh; sleep \"${KEEP}\""]
+          env:
+            - { name: LB_HOST, value: "lb" }
+            # the stats of every load balancer pod are summed
+            - { name: LB_STATS_HOST, value: "lb-pods.peak-ewma.svc.cluster.local" }
+            - { name: LB_INSTANCES, value: "2" }
+            # must match backends.yaml
+            - { name: SLOW_EVERY, value: "8" }
+            - { name: DEGRADE_SERVER, value: "be-2" }
+            - { name: DURATION, value: "30" }
+            - { name: WARMUP, value: "5" }
+            # moderate load first, then a high one (does the full scan
+            # herd onto the fastest servers?)
+            - { name: LOADS, value: "32x1 128x1" }
+            # only Lua against core (all algorithms: remove this line)
+            - { name: ALGOS, value: "pewma:8081 core2:8085 core2w:8087 pewma3:8084 core3:8086 core3w:8088" }
+            - { name: THREADS, value: "2" }
+            - { name: REPEAT, value: "3" }
+            # slow down a fast server during each run: be-2 (s3) goes from
+            # 5 ms to DEGRADE_DELAY ms DEGRADE_AT seconds after the warm-up,
+            # and back to RESTORE_DELAY after the run; "" disables it
+            - { name: DEGRADE_CLI, value: "be-2.be.peak-ewma.svc.cluster.local:9101" }
+            - { name: DEGRADE_AT, value: "10" }
+            - { name: DEGRADE_DELAY, value: "100" }
+            - { name: RESTORE_DELAY, value: "5" }
+            - { name: KEEP, value: "600" }
+          volumeMounts:
+            - { name: bench, mountPath: /bench }
+            - { name: results, mountPath: /results }
+          resources:
+            requests: { cpu: "2", memory: 512Mi }
+            limits: { cpu: "2", memory: 1Gi }
+      volumes:
+        - name: bench
+          configMap:
+            name: bench
+        - name: results
+          emptyDir: {}

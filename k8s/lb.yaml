@@ -1,0 +1,104 @@
+# The load balancer with the algorithms on 8080 (random), 8081 (Peak EWMA),
+# 8082 (leastconn), 8083 (Peak EWMA over all servers), 8084 (Peak EWMA,
+# three draws), 8085 and 8086 (core "random(2|3) peak-ewma"), stats on 8404
+# and a read-only CLI on 9100.
+# Two replicas, one per node of the pool "lb" (several load balancers with
+# their own view of the servers); one CPU per HAProxy thread (NBTHREAD).
+# The headless service lb-pods resolves to every pod, for the stats.
+# The servers are FQDNs: the resolvers of HAProxy do not apply the search
+# domains of resolv.conf, so "be-0.be" would never resolve.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb
+spec:
+  selector:
+    app: peak-ewma-lb
+  ports:
+    - { name: random, port: 8080 }
+    - { name: pewma, port: 8081 }
+    - { name: leastconn, port: 8082 }
+    - { name: pewmafull, port: 8083 }
+    - { name: pewma3, port: 8084 }
+    - { name: core2, port: 8085 }
+    - { name: core3, port: 8086 }
+    - { name: core2w, port: 8087 }
+    - { name: core3w, port: 8088 }
+    - { name: stats, port: 8404 }
+    - { name: cli, port: 9100 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb-pods
+spec:
+  clusterIP: None
+  selector:
+    app: peak-ewma-lb
+  ports:
+    - { name: stats, port: 8404 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lb
+spec:
+  replicas: 2
+  # the node of the pool "lb" only fits one pod with 2 CPUs: stop the old pod
+  # before the new one starts
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: peak-ewma-lb
+  template:
+    metadata:
+      labels:
+        app: peak-ewma-lb
+    spec:
+      nodeSelector:
+        nodepool: lb
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: peak-ewma-lb
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: lb
+          image: peak-ewma-hap
+          args: ["lb"]
+          env:
+            - name: NBTHREAD
+              value: "3"
+            # keep BE_COUNT equal to the replicas in backends.yaml
+            - name: BE_COUNT
+              value: "32"
+            - name: BE_ADDR
+              value: "be-%d.be.peak-ewma.svc.cluster.local:9001"
+            - name: BE_ADDR_OFFSET
+              value: "0"
+          ports:
+            - { name: random, containerPort: 8080 }
+            - { name: pewma, containerPort: 8081 }
+            - { name: leastconn, containerPort: 8082 }
+            - { name: pewmafull, containerPort: 8083 }
+            - { name: pewma3, containerPort: 8084 }
+            - { name: core2, containerPort: 8085 }
+            - { name: core3, containerPort: 8086 }
+            - { name: core2w, containerPort: 8087 }
+            - { name: core3w, containerPort: 8088 }
+            - { name: stats, containerPort: 8404 }
+            - { name: cli, containerPort: 9100 }
+          readinessProbe:
+            tcpSocket:
+              port: 8404
+            periodSeconds: 2
+          resources:
+            requests: { cpu: "3", memory: 256Mi }
+            limits: { cpu: "3", memory: 512Mi }
