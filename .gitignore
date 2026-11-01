@@ -1,2 +1,3 @@
 results/
 src/haproxy.tar
+__pycache__/

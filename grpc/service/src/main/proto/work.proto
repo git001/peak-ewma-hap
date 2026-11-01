@@ -1,0 +1,22 @@
+syntax = "proto3";
+
+package work;
+
+option java_package = "at.none.work.proto";
+option java_multiple_files = true;
+
+// One unary call: burn cpu_us of CPU and allocate alloc_kb of garbage, so
+// that the service has a cost per request and a garbage collector to run.
+service Work {
+  rpc Run (WorkRequest) returns (WorkReply);
+}
+
+message WorkRequest {
+  int32 cpu_us = 1;
+  int32 alloc_kb = 2;
+}
+
+message WorkReply {
+  string server = 1;
+  int64 server_us = 2;
+}

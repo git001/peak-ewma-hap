@@ -1,0 +1,38 @@
+# =============================================================================
+# Client and load balancer of the gRPC test bed: the HAProxy image of this
+# repository plus ghz, the proto file and the scripts.
+#
+#   lb       the central HAProxy (gen-cfg.sh), also the start signal of the
+#            clients (proc.start)
+#   client   a sidecar HAProxy on 127.0.0.1:50051, then bench.sh with ghz
+#
+# Build (after scripts/local.sh build):
+#   podman build -f grpc/Containerfile -t peak-ewma-grpc .
+# =============================================================================
+ARG BASE_IMAGE=localhost/peak-ewma-hap:latest
+ARG GHZ_VERSION=0.121.0
+ARG GHZ_SHA256=9ae3b93f2c46dac9136e29e81b4a1de8d4e56f092a6fe46884a25c9c83cb2324
+
+FROM docker.io/alpine:3.23 AS ghz
+ARG GHZ_VERSION
+ARG GHZ_SHA256
+RUN apk add --no-cache curl && \
+    curl -fsSLo /ghz.tar.gz \
+      "https://github.com/bojand/ghz/releases/download/v${GHZ_VERSION}/ghz-linux-x86_64.tar.gz" && \
+    echo "${GHZ_SHA256}  /ghz.tar.gz" | sha256sum -c - && \
+    tar -C / -xzf /ghz.tar.gz ghz
+
+# -----------------------------------------------------------------------------
+FROM ${BASE_IMAGE}
+
+USER root
+RUN apk add --no-cache curl
+COPY --from=ghz /ghz /usr/local/bin/ghz
+COPY grpc/service/src/main/proto/work.proto /opt/grpc/work.proto
+COPY grpc/gen-cfg.sh grpc/bench.sh /opt/grpc/
+COPY grpc/entrypoint.sh /usr/local/bin/grpc-entrypoint.sh
+RUN mkdir -p /results && chown 1001:0 /results && chmod 775 /results
+
+USER 1001
+ENTRYPOINT ["/usr/local/bin/grpc-entrypoint.sh"]
+CMD ["client"]

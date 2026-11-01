@@ -1,0 +1,71 @@
+# CLIENTS clients at the same time (indexed Job, completions = parallelism),
+# each with ghz and its own HAProxy sidecar, see grpc/bench.sh. They run on
+# the node pools "load" and "lb" (beside the central HAProxy), never beside
+# the services. After the last run the pods stay KEEP seconds so the results
+# can be copied (grpc/get-all-results.sh).
+# Load: RPS per client, a fixed rate (open loop) as long as CONC requests
+# per client are enough to sustain it. CPU_US per request on services with 2
+# CPUs gives about 1000 req/s per service without GC, so 12 services take
+# about 12000 req/s; the default 6 x 1300 = 7800 req/s is about 65 %.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench
+spec:
+  completionMode: Indexed
+  completions: 6
+  parallelism: 6
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: grpc-bench
+    spec:
+      restartPolicy: Never
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+              - matchExpressions:
+                  - { key: nodepool, operator: In, values: [load, lb] }
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: client
+          image: peak-ewma-grpc
+          args: ["client"]
+          env:
+            - { name: BENCH, value: "/bench/bench.sh" }
+            - { name: SVC_COUNT, value: "12" }
+            - { name: SVC_ADDR, value: "svc-%d.svc.grpc.svc.cluster.local:9090" }
+            - { name: NBTHREAD, value: "1" }
+            - { name: WEIGHT, value: "100" }
+            - { name: LB_HOST, value: "lb" }
+            - { name: MODES, value: "central sidecar" }
+            - { name: ALGOS, value: "lc po2 pe2 pe3" }
+            - { name: WARMUP, value: "60s" }
+            - { name: DURATION, value: "60s" }
+            - { name: PAUSE, value: "15" }
+            - { name: REPEAT, value: "2" }
+            - { name: CONC, value: "64" }
+            - { name: CONNS, value: "1" }
+            - { name: RPS, value: "1300" }
+            - { name: CPU_US, value: "2000" }
+            - { name: ALLOC_KB, value: "256" }
+            - { name: KEEP, value: "3600" }
+          volumeMounts:
+            - { name: bench, mountPath: /bench }
+            - { name: results, mountPath: /results }
+          resources:
+            requests: { cpu: "1", memory: 512Mi }
+            limits: { cpu: "2", memory: 1Gi }
+      volumes:
+        - name: bench
+          configMap:
+            name: bench
+        - name: results
+          emptyDir: {}

@@ -1,0 +1,58 @@
+# The central HAProxy, alone on the node pool "lb": one backend per
+# algorithm (be_<algo>), selected by the gRPC metadata "x-algo", see
+# grpc/gen-cfg.sh. Also the start signal of the clients (CLI 9100, /start
+# on 8404). One CPU per thread.
+apiVersion: v1
+kind: Service
+metadata:
+  name: lb
+spec:
+  selector:
+    app: grpc-lb
+  ports:
+    - { name: grpc, port: 50051 }
+    - { name: stats, port: 8404 }
+    - { name: cli, port: 9100 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: lb
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: grpc-lb
+  template:
+    metadata:
+      labels:
+        app: grpc-lb
+    spec:
+      nodeSelector:
+        nodepool: lb
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: lb
+          image: peak-ewma-grpc
+          args: ["lb"]
+          env:
+            - { name: SVC_COUNT, value: "12" }
+            - { name: SVC_ADDR, value: "svc-%d.svc.grpc.svc.cluster.local:9090" }
+            - { name: NBTHREAD, value: "3" }
+            - { name: WEIGHT, value: "100" }
+          ports:
+            - { name: grpc, containerPort: 50051 }
+            - { name: stats, containerPort: 8404 }
+            - { name: cli, containerPort: 9100 }
+          readinessProbe:
+            tcpSocket:
+              port: 8404
+            periodSeconds: 2
+          resources:
+            requests: { cpu: "3", memory: 256Mi }
+            limits: { cpu: "3", memory: 512Mi }

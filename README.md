@@ -14,9 +14,42 @@ use, and does the core implementation behave like the prototype?
 
 Results and the story behind them: see [Results](#results) below.
 
-The opposite case, slowness from CPU contention with many sidecar load
-balancers, is the rebuild of the 2019 "power of two" test of HAProxy in
-[mytime/](mytime/README.md).
+Two more test beds look at the other cases:
+
+- [mytime/](mytime/README.md): the 2019 "power of two" test of HAProxy,
+  rebuilt with its original services: slowness from CPU contention, many
+  sidecar load balancers.
+- [grpc/](grpc/README.md): Spring Boot gRPC services with real garbage
+  collection pauses, one central load balancer or one sidecar per client,
+  the case peak EWMA was built for in Finagle.
+
+## Conclusion
+
+| Test bed | Why servers are slow | Best |
+|---|---|---|
+| this one | some servers always (fixed delay) | `random(3) peak-ewma`: 0.2 % of the requests on the slow servers instead of 3.3 % with leastconn, p99 7 ms instead of 51 ms |
+| [MyTime](mytime/README.md) | their load (CPU contention) | `leastconn`; `random(3) peak-ewma` about as good, `random(2) peak-ewma` not better than `random(2)` |
+| [gRPC](grpc/README.md) | short GC pauses (20 to 50 ms) | `leastconn` and peak EWMA within 1 ms at p99, central and sidecar |
+
+A response time is only known once the slow response has come back, while
+the number of outstanding requests rises at once. A server that is slow
+because of its load, or only for a short time, is therefore seen earlier
+by leastconn, which also keeps fewer requests waiting on it (at most 5
+concurrent requests per server in the gRPC test, up to 12 with peak
+EWMA). Peak EWMA only wins when servers are slow for a long time for a
+reason that the number of requests does not show. For servers of
+different capacity, `leastconn` with a matching `weight` per server is
+the simpler tool, with `observe layer7` and `on-error` against servers
+that fail fast (a quick 503 attracts the traffic with both algorithms).
+
+The [2019 conclusion](https://www.haproxy.com/blog/power-of-two-load-balancing)
+still holds in 2026: HAProxy's leastconn beats the power of two (with
+gRPC sidecars it matches it) and avoids bursts of traffic onto a single server, with a single load
+balancer as well as with many sidecars. The one case where a
+latency-aware choice does better is a server that is slower for a long
+time for a reason its number of requests does not show; when that
+difference is known, a lower `weight` on that server does the same with
+leastconn.
 
 Mailing list:
 
@@ -108,6 +141,8 @@ of `%Tr`, the server list is refreshed once per second and thread.
 |---|---|---|
 | `peak-ewma-hap` | [containers/haproxy](containers/haproxy/Containerfile) | HAProxy, haterm and haload (`src/haproxy.tar` if present, else `HAPROXY_REF`, default `v3.5-dev9`), Lua 5.4, OpenSSL (for haload), the configurations; roles `lb`, `shim`, `haterm` |
 | `peak-ewma-mytime` | [mytime](mytime/Containerfile) | the image above plus Python and the services of the 2019 test, see [mytime/](mytime/README.md) |
+| `peak-ewma-grpc` | [grpc](grpc/Containerfile) | the HAProxy image plus ghz 0.121.0 and the scripts of the gRPC test bed; roles `lb` and `client` |
+| `peak-ewma-grpc-svc` | [grpc/service](grpc/service/Containerfile) | the Spring Boot gRPC service (Java 25), see [grpc/](grpc/README.md) |
 | `peak-ewma-h2load` | [containers/h2load](containers/h2load/Containerfile) | h2load from nghttp2 1.70.0 with aws-lc v5.12.0, nghttp3 1.18.0, ngtcp2 1.25.0, plus curl and socat |
 
 The h2load Containerfile is based on the one of the server-benchmark lab,

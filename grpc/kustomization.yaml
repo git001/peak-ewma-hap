@@ -1,0 +1,32 @@
+# gRPC test bed on MKS (or any cluster), node pools with the label
+# nodepool=<name>:
+#   app    the services svc-0 .. svc-11, 2 per node on 6 nodes with 8 vCPU
+#   lb     the central HAProxy and some of the clients
+#   load   the other clients
+#
+#   kubectl apply -k grpc/
+#
+# To run the bench again:
+#   kubectl -n grpc delete job bench && kubectl apply -k grpc/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: grpc
+resources:
+  - k8s/namespace.yaml
+  - k8s/svc.yaml
+  - k8s/lb.yaml
+  - k8s/bench-job.yaml
+configMapGenerator:
+  - name: bench
+    files:
+      - bench.sh
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  # set to the pushed images, e.g. ghcr.io/<user>/peak-ewma-grpc:<tag>
+  - name: peak-ewma-grpc
+    newName: ghcr.io/git001/peak-ewma-grpc
+    newTag: latest
+  - name: peak-ewma-grpc-svc
+    newName: ghcr.io/git001/peak-ewma-grpc-svc
+    newTag: latest

@@ -1,0 +1,65 @@
+# The gRPC services svc-0 .. svc-N-1 (Spring Boot, h2c on 9090), spread over
+# the node pool "app". All of them run with the same JVM settings: the
+# pauses come from the garbage collector, as in a fleet of JVMs. The GC log
+# goes to stdout (grpc/get-all-results.sh copies it).
+# The servers in the HAProxy configurations are FQDNs: the resolvers of
+# HAProxy do not apply the search domains of resolv.conf.
+apiVersion: v1
+kind: Service
+metadata:
+  name: svc
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: grpc-svc
+  ports:
+    - { name: grpc, port: 9090 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: svc
+spec:
+  serviceName: svc
+  replicas: 12
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: grpc-svc
+  template:
+    metadata:
+      labels:
+        app: grpc-svc
+    spec:
+      nodeSelector:
+        nodepool: app
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: grpc-svc
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: svc
+          image: peak-ewma-grpc-svc
+          env:
+            # the same for all services; 256 MiB heap with a cache of
+            # RETAIN_MB replaced by the calls -> regular full collections
+            - name: JAVA_OPTS
+              value: "-Xms256m -Xmx256m -XX:+UseParallelGC -Xlog:gc:stdout:time,uptime"
+            - { name: RETAIN_MB, value: "100" }
+          ports:
+            - { name: grpc, containerPort: 9090 }
+          readinessProbe:
+            tcpSocket:
+              port: 9090
+            periodSeconds: 2
+          resources:
+            requests: { cpu: "2", memory: 512Mi }
+            limits: { cpu: "2", memory: 512Mi }
