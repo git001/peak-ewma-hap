@@ -128,11 +128,16 @@ topology only: `central` ran first, while the JVMs still collected more.
   four are within 1 ms at p99; leastconn has the best mean in both.
 - **Why**: a GC pause hits the requests already on the server, no
   algorithm avoids that. What an algorithm can do is to stop sending to a
-  server that is paused. The number of outstanding requests rises at once
-  on that server, so leastconn sees it at once: it never let more than 5
-  requests pile up on a server (central). Peak EWMA only learns about the
-  pause with the first slow response, when the pause is over, and let up
-  to 12 pile up.
+  server that is paused. Its outstanding requests rise at once, and
+  leastconn, which compares all 12 servers, never let more than 5 requests
+  pile up on a server (central). Peak EWMA sees the outstanding requests
+  too, but compares only 2 or 3 drawn servers, and its estimate of the
+  paused server only rises with the first slow response, when the pause is
+  over: up to 12 piled up, with plain random(2) up to 21. With the central
+  balancer random(2) peak-ewma beat plain random(2), so the estimate adds
+  something, but not enough to make up for the sample. These runs do not
+  separate the sample size from the late signal; a run with random(3)
+  without peak-ewma would.
 - In the percentile chart of the sidecar mode, the step of the GC pauses
   (from 3 ms to over 20 ms) starts at about p96 with leastconn and p94
   with the others: fewer requests run into a pause.

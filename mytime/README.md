@@ -8,7 +8,9 @@ A rebuild of the test that Willy Tarreau described in
 peak-ewma` of this repository.
 
 The original repository has no license file, so its files are not copied
-here: [Containerfile](Containerfile) clones it at build time.
+here, and no image that contains them is published:
+[Containerfile](Containerfile) clones it at build time, build the image
+yourself.
 
 The opposite of the test bed in the repository root: there, the slow
 servers get a fixed delay; here, slowness comes from CPU contention, it
@@ -163,8 +165,10 @@ project first.
    done
    kubectl get pods -o name | grep node-debugger | xargs kubectl delete
    ```
-2. Push the image (`peak-ewma-mytime`, built as above) and make the
-   package public.
+2. Push the image (`peak-ewma-mytime`, built as above) to a registry the
+   cluster can pull from, and keep it private: it contains the original
+   services, whose repository has no license (give the cluster a pull
+   secret).
 3. `kubectl apply -k mytime/`
 4. Follow the run: `kubectl -n mytime logs -f job/bench`
 5. `mytime/get-all-results.sh <label>` while the bench pod still runs

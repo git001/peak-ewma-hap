@@ -3,10 +3,11 @@
 A prototype of the Peak EWMA load balancing algorithm (Finagle, Linkerd,
 Envoy contrib) for HAProxy written in Lua, and a test bed that compares it
 on the same servers with `balance random(2)`, `balance leastconn` and the
-core implementation `balance random(<draws>) peak-ewma` proposed for
-HAProxy. The Lua prototype runs in three variants: 2 random draws (the
-power of two choices of Finagle), 3 random draws, and a comparison of all
-servers ("pewmafull", the latency-aware counterpart of `leastconn`).
+core implementation `balance random(<draws>) peak-ewma` written for
+HAProxy (sent to the mailing list for the archive, not for merging, see
+the conclusion). The Lua prototype runs in three variants: 2 random draws
+(the power of two choices of Finagle), 3 random draws, and a comparison of
+all servers ("pewmafull", the latency-aware counterpart of `leastconn`).
 
 The questions it answers: does a latency-aware choice route around a slow
 server better than the session count that `random(2)` and `leastconn`
@@ -28,28 +29,37 @@ Two more test beds look at the other cases:
 | Test bed | Why servers are slow | Best |
 |---|---|---|
 | this one | some servers always (fixed delay) | `random(3) peak-ewma`: 0.2 % of the requests on the slow servers instead of 3.3 % with leastconn, p99 7 ms instead of 51 ms |
-| [MyTime](mytime/README.md) | their load (CPU contention) | `leastconn`; `random(3) peak-ewma` about as good, `random(2) peak-ewma` not better than `random(2)` |
+| [MyTime](mytime/README.md) | their load (CPU contention) | `leastconn`; `random(3) peak-ewma` between leastconn and `random(2)`, `random(2) peak-ewma` not better than `random(2)` |
 | [gRPC](grpc/README.md) | short GC pauses (20 to 50 ms) | `leastconn` and peak EWMA within 1 ms at p99, central and sidecar |
 
-A response time is only known once the slow response has come back, while
-the number of outstanding requests rises at once. A server that is slow
-because of its load, or only for a short time, is therefore seen earlier
-by leastconn, which also keeps fewer requests waiting on it (at most 5
-concurrent requests per server in the gRPC test, up to 12 with peak
-EWMA). Peak EWMA only wins when servers are slow for a long time for a
-reason that the number of requests does not show. For servers of
-different capacity, `leastconn` with a matching `weight` per server is
-the simpler tool, with `observe layer7` and `on-error` against servers
-that fail fast (a quick 503 attracts the traffic with both algorithms).
+Two properties of leastconn played together in these tests: it reacts to
+the number of outstanding requests, which rises the moment a server slows
+down, while a response time is only known once the slow response has come
+back; and it compares all servers, while the power of two and peak EWMA
+compare a sample of 2 or 3. leastconn kept fewer requests waiting on a
+slow server (at most 5 concurrent requests per server in the gRPC test, up
+to 12 with peak EWMA, up to 21 with random(2)). Peak EWMA uses the
+outstanding requests too; the response time it adds brought no measurable
+gain here, and these runs do not tell apart how much of the gap comes from
+the sample size and how much from the late signal (a run with random(3)
+without peak-ewma would). Peak EWMA only won when servers were slow for a
+long time for a reason that the number of requests does not show. For
+servers of different capacity, `leastconn` with a matching `weight` per
+server is the simpler tool (not measured against peak EWMA here), with
+`observe layer7` and `on-error` against servers that fail fast (a quick
+503 attracts the traffic with both algorithms).
 
 The [2019 conclusion](https://www.haproxy.com/blog/power-of-two-load-balancing)
 still holds in 2026: HAProxy's leastconn beats the power of two (with
-gRPC sidecars it matches it) and avoids bursts of traffic onto a single server, with a single load
-balancer as well as with many sidecars. The one case where a
-latency-aware choice does better is a server that is slower for a long
-time for a reason its number of requests does not show; when that
-difference is known, a lower `weight` on that server does the same with
-leastconn.
+gRPC sidecars it matches it) and avoids bursts of traffic onto a single
+server, with a single load balancer as well as with many sidecars. A
+central load balancer for the calls between the services spreads the
+load best, as it sees every request, but costs one more hop per call: in
+2026 it matches leastconn on the sidecars under contention and is slower
+without it. The one case where a latency-aware choice does better is a
+server that is slower for a long time for a reason its number of
+requests does not show; when that difference is known, a lower `weight`
+on that server could do much of the same with leastconn (not measured).
 
 Mailing list:
 
@@ -140,7 +150,7 @@ of `%Tr`, the server list is refreshed once per second and thread.
 | Image | Containerfile | Content |
 |---|---|---|
 | `peak-ewma-hap` | [containers/haproxy](containers/haproxy/Containerfile) | HAProxy, haterm and haload (`src/haproxy.tar` if present, else `HAPROXY_REF`, default `v3.5-dev9`), Lua 5.4, OpenSSL (for haload), the configurations; roles `lb`, `shim`, `haterm` |
-| `peak-ewma-mytime` | [mytime](mytime/Containerfile) | the image above plus Python and the services of the 2019 test, see [mytime/](mytime/README.md) |
+| `peak-ewma-mytime` | [mytime](mytime/Containerfile) | the image above plus Python and the services of the 2019 test, see [mytime/](mytime/README.md); not published (the original services have no license), build it yourself |
 | `peak-ewma-grpc` | [grpc](grpc/Containerfile) | the HAProxy image plus ghz 0.121.0 and the scripts of the gRPC test bed; roles `lb` and `client` |
 | `peak-ewma-grpc-svc` | [grpc/service](grpc/service/Containerfile) | the Spring Boot gRPC service (Java 25), see [grpc/](grpc/README.md) |
 | `peak-ewma-h2load` | [containers/h2load](containers/h2load/Containerfile) | h2load from nghttp2 1.70.0 with aws-lc v5.12.0, nghttp3 1.18.0, ngtcp2 1.25.0, plus curl and socat |
