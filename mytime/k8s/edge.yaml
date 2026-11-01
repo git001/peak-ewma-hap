@@ -1,0 +1,62 @@
+# The edge HAProxy, alone on the node pool "lb": leastconn over the mytime
+# service of all nodes on 2004 (and log, user, time on 2001-2003 for the
+# "ext" runs), as edge.cfg of the original. Stats on 8404 (also "/algo"
+# for the nodes), CLI on 9100 for mytime/bench.sh. One CPU per thread.
+apiVersion: v1
+kind: Service
+metadata:
+  name: edge
+spec:
+  selector:
+    app: mytime-edge
+  ports:
+    - { name: time, port: 2001 }
+    - { name: user, port: 2002 }
+    - { name: log, port: 2003 }
+    - { name: mytime, port: 2004 }
+    - { name: stats, port: 8404 }
+    - { name: cli, port: 9100 }
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: edge
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: mytime-edge
+  template:
+    metadata:
+      labels:
+        app: mytime-edge
+    spec:
+      nodeSelector:
+        nodepool: lb
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: edge
+          image: peak-ewma-mytime
+          args: ["edge"]
+          env:
+            - { name: APP_COUNT, value: "6" }
+            - { name: APP_ADDR, value: "app-%d.app.mytime.svc.cluster.local" }
+            # protocol between the proxies: h1 (2019) or h2 (h2c, no TLS)
+            - { name: MESH_PROTO, value: "h1" }
+            - { name: NBTHREAD, value: "2" }
+          ports:
+            - { name: mytime, containerPort: 2004 }
+            - { name: stats, containerPort: 8404 }
+            - { name: cli, containerPort: 9100 }
+          readinessProbe:
+            tcpSocket:
+              port: 8404
+            periodSeconds: 2
+          resources:
+            requests: { cpu: "2", memory: 256Mi }
+            limits: { cpu: "2", memory: 512Mi }

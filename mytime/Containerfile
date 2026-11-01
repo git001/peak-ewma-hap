@@ -1,0 +1,47 @@
+# =============================================================================
+# MyTime: the 2019 "power of two random choices" test of HAProxy, rebuilt for
+# Kubernetes with the original services
+#
+#   node   one node of the test: the four services time, user, log and
+#          mytime, each with its HAProxy sidecar, pinned to CPU cores
+#   edge   the edge HAProxy in front of the mytime service of all nodes
+#
+# The services and the plot settings come from the original repository
+# https://github.com/haproxytech/bench-algo-p2c (no license file, so it is
+# fetched at build time instead of being copied into this repository).
+# HAProxy is the build of the test bed image (see "scripts/local.sh src"
+# and "build"). From the repository root:
+#   podman build -f mytime/Containerfile -t peak-ewma-mytime .
+# =============================================================================
+
+ARG HAP_IMAGE=localhost/peak-ewma-hap:latest
+ARG ALPINE_VERSION=3.23
+
+FROM docker.io/alpine:${ALPINE_VERSION} AS original
+
+# the last commit of the original repository (2019-02-20)
+ARG P2C_COMMIT=cab55f8
+
+RUN apk add --no-cache git && \
+    git clone https://github.com/haproxytech/bench-algo-p2c /p2c && \
+    git -C /p2c checkout "${P2C_COMMIT}"
+
+# -----------------------------------------------------------------------------
+FROM ${HAP_IMAGE}
+
+USER root
+# plain CPython with the GIL, like the original (Python 3.6, 2019);
+# taskset pins every service and its sidecar to a core, as service.sh and
+# sidecar.sh of the original did; curl and haload for mytime/bench.sh
+RUN apk add --no-cache python3 util-linux-misc curl
+
+COPY --from=original /p2c/svc-time.py /p2c/svc-user.py /p2c/svc-log.py \
+     /p2c/svc-mytime.py /opt/p2c/
+COPY mytime/gen-cfg.sh /usr/local/bin/gen-cfg.sh
+COPY mytime/entrypoint.sh /usr/local/bin/mytime-entrypoint.sh
+
+USER 1001
+EXPOSE 2001 2002 2003 2004 32001 32002 32003 32004 8404 9100
+
+ENTRYPOINT ["/usr/local/bin/mytime-entrypoint.sh"]
+CMD ["node"]

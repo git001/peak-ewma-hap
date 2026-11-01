@@ -1,0 +1,32 @@
+# MyTime on MKS (or any cluster), node pools with the label nodepool=<name>:
+#   app    6 nodes with 8 vCPU (c3-16), one test node each
+#   lb     1 node, the edge HAProxy
+#   load   1 node, h2load
+#
+#   kubectl apply -k mytime/
+#
+# The bench Job runs every contention level with every algorithm and
+# switches them at runtime. To run it again:
+#   kubectl -n mytime delete job bench && kubectl apply -k mytime/
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: mytime
+resources:
+  - k8s/namespace.yaml
+  - k8s/app.yaml
+  - k8s/edge.yaml
+  - k8s/bench-job.yaml
+configMapGenerator:
+  - name: bench
+    files:
+      - bench.sh
+generatorOptions:
+  disableNameSuffixHash: true
+images:
+  # set to the pushed images, e.g. ghcr.io/<user>/peak-ewma-mytime:<tag>
+  - name: peak-ewma-mytime
+    newName: ghcr.io/git001/peak-ewma-mytime
+    newTag: latest
+  - name: peak-ewma-h2load
+    newName: ghcr.io/git001/peak-ewma-h2load
+    newTag: latest

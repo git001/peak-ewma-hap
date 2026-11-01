@@ -1,0 +1,59 @@
+# All runs of the test: each contention level (LEVELS) with each algorithm
+# (ALGOS). The summary is printed to the log; the pod then stays KEEP
+# seconds so the results can be copied (mytime/get-all-results.sh).
+# Alone on the node pool "load", one CPU per load generator thread
+# (THREADS). As in 2019 (inject -u 400 -s 500): 400 clients, a new one
+# every 500 ms, and a fixed number of requests per run, so that a better
+# algorithm finishes sooner. The load generator is haload (HTTP/1, a new
+# connection per request like inject); for h2load (h2c to the edge) set
+# GEN to h2load and the image to peak-ewma-h2load.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: bench
+spec:
+  backoffLimit: 0
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        app: mytime-bench
+    spec:
+      restartPolicy: Never
+      nodeSelector:
+        nodepool: load
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+        fsGroup: 0
+      containers:
+        - name: bench
+          image: peak-ewma-mytime
+          command: ["/bin/sh", "-c", "sh /bench/bench.sh; sleep \"${KEEP}\""]
+          env:
+            - { name: GEN, value: "haload" }
+            - { name: EDGE_HOST, value: "edge" }
+            - { name: APP_COUNT, value: "6" }
+            - { name: APP_ADDR, value: "app-%d.app" }
+            - { name: LEVELS, value: "4 2 1" }
+            - { name: ALGOS, value: "rnd po2 rr lc ext pe2 pe3" }
+            - { name: CLIENTS, value: "400" }
+            - { name: RAMP, value: "2" }
+            # per level, for several minutes per run
+            - { name: REQUESTS, value: "4:600000 2:400000 1:250000" }
+            - { name: THREADS, value: "2" }
+            - { name: PAUSE, value: "10" }
+            - { name: KEEP, value: "3600" }
+          volumeMounts:
+            - { name: bench, mountPath: /bench }
+            - { name: results, mountPath: /results }
+          resources:
+            requests: { cpu: "2", memory: 512Mi }
+            limits: { cpu: "2", memory: 2Gi }
+      volumes:
+        - name: bench
+          configMap:
+            name: bench
+        - name: results
+          emptyDir: {}

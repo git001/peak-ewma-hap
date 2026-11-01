@@ -1,0 +1,79 @@
+# The nodes app-0 .. app-5 of the test, one per node of the pool "app": the
+# four original services, each with its HAProxy sidecar, in one container.
+# A service and its sidecar are pinned to one of the cores 0-3 (taskset);
+# the contention level (4, 2 or 1 core for all four) is switched by
+# mytime/bench.sh at runtime, the container keeps its 4 CPUs.
+# The servers in the HAProxy configurations are FQDNs: the resolvers of
+# HAProxy do not apply the search domains of resolv.conf.
+apiVersion: v1
+kind: Service
+metadata:
+  name: app
+spec:
+  clusterIP: None
+  publishNotReadyAddresses: true
+  selector:
+    app: mytime-app
+  ports:
+    - { name: time, port: 2001 }
+    - { name: user, port: 2002 }
+    - { name: log, port: 2003 }
+    - { name: mytime, port: 2004 }
+    - { name: stats-time, port: 32001 }
+    - { name: stats-user, port: 32002 }
+    - { name: stats-log, port: 32003 }
+    - { name: stats-mytime, port: 32004 }
+    - { name: netstat, port: 9000 }
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: app
+spec:
+  serviceName: app
+  replicas: 6
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: mytime-app
+  template:
+    metadata:
+      labels:
+        app: mytime-app
+    spec:
+      nodeSelector:
+        nodepool: app
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: kubernetes.io/hostname
+              labelSelector:
+                matchLabels:
+                  app: mytime-app
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 0
+      containers:
+        - name: node
+          image: peak-ewma-mytime
+          args: ["node"]
+          env:
+            - { name: APP_COUNT, value: "6" }
+            - { name: APP_ADDR, value: "app-%d.app.mytime.svc.cluster.local" }
+            # protocol between the proxies: h1 (2019) or h2 (h2c, no TLS)
+            - { name: MESH_PROTO, value: "h1" }
+            - { name: EDGE_ADDR, value: "edge.mytime.svc.cluster.local" }
+            - { name: EDGE, value: "edge" }
+            # the :9000 counter server away from the pinned cores 0-3
+            - { name: STAT_CORES, value: "4-7" }
+            # listen backlog of the services, empty = 5 as in the original
+            - { name: BACKLOG, value: "" }
+          ports:
+            - { name: time, containerPort: 2001 }
+            - { name: user, containerPort: 2002 }
+            - { name: log, containerPort: 2003 }
+            - { name: mytime, containerPort: 2004 }
+          resources:
+            requests: { cpu: "4", memory: 1Gi }
+            limits: { cpu: "4", memory: 1Gi }

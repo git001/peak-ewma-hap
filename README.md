@@ -14,6 +14,10 @@ use, and does the core implementation behave like the prototype?
 
 Results and the story behind them: see [Results](#results) below.
 
+The opposite case, slowness from CPU contention with many sidecar load
+balancers, is the rebuild of the 2019 "power of two" test of HAProxy in
+[mytime/](mytime/README.md).
+
 Mailing list:
 
 - [PATCH 0/2] backend: better use of the draws of balance random
@@ -102,7 +106,8 @@ of `%Tr`, the server list is refreshed once per second and thread.
 
 | Image | Containerfile | Content |
 |---|---|---|
-| `peak-ewma-hap` | [containers/haproxy](containers/haproxy/Containerfile) | HAProxy and haterm (`src/haproxy.tar` if present, else `HAPROXY_REF`, default `v3.5-dev9`), Lua 5.4, the configurations; roles `lb`, `shim`, `haterm` |
+| `peak-ewma-hap` | [containers/haproxy](containers/haproxy/Containerfile) | HAProxy, haterm and haload (`src/haproxy.tar` if present, else `HAPROXY_REF`, default `v3.5-dev9`), Lua 5.4, OpenSSL (for haload), the configurations; roles `lb`, `shim`, `haterm` |
+| `peak-ewma-mytime` | [mytime](mytime/Containerfile) | the image above plus Python and the services of the 2019 test, see [mytime/](mytime/README.md) |
 | `peak-ewma-h2load` | [containers/h2load](containers/h2load/Containerfile) | h2load from nghttp2 1.70.0 with aws-lc v5.12.0, nghttp3 1.18.0, ngtcp2 1.25.0, plus curl and socat |
 
 The h2load Containerfile is based on the one of the server-benchmark lab,
