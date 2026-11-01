@@ -1,9 +1,10 @@
 # =============================================================================
-# HAProxy + haterm for the Peak EWMA test (one image, three roles)
+# HAProxy + haterm + haload for the Peak EWMA test (one image, three roles)
 #
 #   lb      HAProxy load balancer with the Lua Peak EWMA prototype
 #   shim    HAProxy in front of one haterm, sets the response delay "t"
 #   haterm  HAProxy's dummy HTTP server for benchmarks
+#   haload  HAProxy's load generator, used by mytime/bench.sh (not a role)
 #
 # Build from the repository root:
 #   podman build -f containers/haproxy/Containerfile -t peak-ewma-hap .
@@ -26,10 +27,13 @@ RUN apk add --no-cache \
     gcc \
     libc-dev \
     linux-headers \
-    lua5.4-dev
+    lua5.4-dev \
+    openssl-dev
 
 COPY src/ /build/src/
 
+# haload needs OpenSSL, and <signal.h> which src/haload.c does not include
+# (glibc pulls it in indirectly, musl does not)
 RUN if [ -f /build/src/haproxy.tar ]; then \
         tar -C /build -xf /build/src/haproxy.tar; \
     else \
@@ -39,14 +43,15 @@ RUN if [ -f /build/src/haproxy.tar ]; then \
     make -C /build/haproxy -j"${JOBS}" \
         TARGET=linux-musl CPU=generic \
         USE_LUA=1 LUA_LIB=/usr/lib/lua5.4 LUA_INC=/usr/include/lua5.4 \
-        USE_PROMEX=1 USE_SLZ=1 \
-        all haterm && \
+        USE_PROMEX=1 USE_SLZ=1 USE_OPENSSL=1 \
+        ADDINC="-include signal.h" \
+        all haterm haload && \
     /build/haproxy/haproxy -vv | head -3
 
 # -----------------------------------------------------------------------------
 FROM docker.io/alpine:${ALPINE_VERSION}
 
-RUN apk add --no-cache lua5.4-libs socat && \
+RUN apk add --no-cache lua5.4-libs libssl3 socat && \
     adduser -D -H -u 1001 -G root haproxy && \
     mkdir -p /etc/haproxy /var/run/haproxy && \
     chown 1001:0 /var/run/haproxy && \
@@ -54,6 +59,7 @@ RUN apk add --no-cache lua5.4-libs socat && \
 
 COPY --from=builder /build/haproxy/haproxy /usr/local/sbin/haproxy
 COPY --from=builder /build/haproxy/haterm /usr/local/sbin/haterm
+COPY --from=builder /build/haproxy/haload /usr/local/sbin/haload
 COPY config/lb.cfg config/shim.cfg /etc/haproxy/
 COPY lua/peak_ewma.lua /etc/haproxy/
 COPY containers/haproxy/entrypoint.sh /usr/local/bin/entrypoint.sh
