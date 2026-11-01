@@ -163,19 +163,20 @@ gnuplot <<EOF
 $common
 set terminal pngcairo size 720,400 font "DejaVu Sans,9"
 set output "load-per-server_cpu${cores}.png"
+set title "Load per server for each algorithm"
 set key outside right top vertical nobox noopaque samplen 2
 set bmargin 5
+unset xlabel
 set xrange [-1:$((i * (nodes + 1) - 1))]
 set yrange [0:*]
 set offsets 0, 0, graph 0.05, 0
 set style data histograms
-set style histogram rowstacked title offset 0,0.8
+set style histogram rowstacked title offset 0,-0.6
 set style fill solid 1.00 noborder
 set boxwidth 0.6 absolute
 set xtics in nomirror format ""
 set tics scale 0.0
 set grid noxtics
-set xlabel "Load per server for each algorithm" offset 0,-1
 set ylabel "Maximum server load (lower is better)"
 plot $plot
 EOF

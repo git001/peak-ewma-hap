@@ -48,7 +48,7 @@ spec:
             - { name: APP_ADDR, value: "app-%d.app.mytime.svc.cluster.local" }
             # protocol between the proxies: h1 (2019) or h2 (h2c, no TLS)
             - { name: MESH_PROTO, value: "h1" }
-            - { name: NBTHREAD, value: "2" }
+            - { name: NBTHREAD, value: "6" }
           ports:
             - { name: mytime, containerPort: 2004 }
             - { name: stats, containerPort: 8404 }
@@ -58,5 +58,5 @@ spec:
               port: 8404
             periodSeconds: 2
           resources:
-            requests: { cpu: "2", memory: 256Mi }
-            limits: { cpu: "2", memory: 512Mi }
+            requests: { cpu: "6", memory: 256Mi }
+            limits: { cpu: "6", memory: 512Mi }

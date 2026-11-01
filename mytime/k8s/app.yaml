@@ -69,6 +69,9 @@ spec:
             - { name: STAT_CORES, value: "4-7" }
             # listen backlog of the services, empty = 5 as in the original
             - { name: BACKLOG, value: "" }
+            # weight of all servers of the sidecars, 1 as in the original; 100
+            # makes the shares of the ring of random() even
+            - { name: WEIGHT, value: "1" }
           ports:
             - { name: time, containerPort: 2001 }
             - { name: user, containerPort: 2002 }

@@ -127,6 +127,11 @@ Charts per level ([plot.sh](plot.sh)): the three of the original
 time over the percentiles on a log scale (after `graph-h1load-pct.sh` of
 [dpbench](https://github.com/dpbench/dpbench)) and the CPU steal.
 
+The cluster state at the end ([get-all-results.sh](get-all-results.sh),
+`cluster/`) has `show stat` of every sidecar, with `ctime`/`rtime` and
+their maxima per server: that is where the inbound and outbound sides
+can be told apart.
+
 ## Local run with podman
 
 ```sh
@@ -167,6 +172,85 @@ project first.
 6. `kubectl -n mytime delete job bench` before the next
    `kubectl apply -k mytime/`. Do not apply while the Job runs: the
    ConfigMap with `bench.sh` would change under the running script.
+
+## Results
+
+OVH MKS, haload, `MESH_PROTO=h1`, conntrack raised (step 1), 400
+clients. Each cell: duration (s) / mean (ms) / p99.9 (ms) /
+`ListenOverflows` / maximum load of a server.
+
+Main pass, 2026-10-31 (HAProxy with the peak EWMA sample "Tr"):
+
+| cores | rnd | po2 | rr | lc | ext | pe2 | pe3 |
+|---|---|---|---|---|---|---|---|
+| 4 | 295/77/3074/35263/458 | 261/50/1261/14014/84 | 261/50/1265/14485/185 | 259/50/1261/13779/66 | 644/304/1459/4682/154 (*) | 258/48/1250/13249/115 | **253/45/1071/11406/113** |
+| 2 | 354/172/4098/66879/637 | 296/111/3080/32811/169 | 319/136/4035/48754/525 | **274/90/3070/22696/121** | 391/207/1484/11062/155 (*) | 296/111/3076/33827/166 | 293/108/3080/30752/153 |
+| 1 | 434/395/7582/97304/522 (127 failed) | 351/265/4223/48266/177 | 431/382/7959/94250/456 (296 failed) | 315/208/3385/31992/139 | 313/207/4110/23023/125 | 321/220/3521/39557/175 | **311/201/3318/33167/153** |
+
+(*) limited by the CPU of the edge (2 threads, `Idle_pct` 1).
+
+The ranking of 2019 holds, with larger gaps: leastconn, then the power
+of two, round robin and random far behind. `pe3` is about as good as
+leastconn: slightly ahead at 4 and 1 cores in this pass, slightly behind
+at 1 core on 2026-11-01 (below), clearly behind at 2 cores. `pe2` is not
+better than `po2`. Peak EWMA loads single servers more (maximum load 113
+to 175 against 66 to 139 for leastconn).
+
+Two variants on 2026-11-01 (another cluster, so compared with a new `lc`
+run on the same cluster):
+
+| cores | lc | pe2 | pe3 | po2 |
+|---|---|---|---|---|
+| 2, Tc + Tr sample | **256/71/2099/17060/97** | 272/86/3043/25243/141 | 265/80/2464/21733/128 | |
+| 2, weight 100 | | 277/92/3056/27857/142 | 267/82/3056/22111/125 | 273/87/3058/25512/120 |
+| 1, Tc + Tr sample | **288/165/3140/24334/121** | 299/183/3156/32649/169 | 292/171/3142/27728/142 | |
+| 1, weight 100 | | 303/187/3156/33532/161 | 297/178/3152/29275/150 | 298/180/3259/31089/142 |
+
+- **Connect time in the sample (Tc + Tr instead of Tr)**: no effect, the
+  ratios to `lc` are those of the main pass. The connections that wait
+  for a SYN retransmit are those of the *inbound* sidecar to its local
+  service (`ctime_max` 5027 ms), which has a single server and no choice.
+  The *outbound* sidecars, where the algorithm runs, connect to the
+  inbound sidecars of other nodes (`ctime_max` 14 ms): for them the wait
+  is already part of Tr.
+- **Weight 100** (even shares of the ring of `random`): the requests are
+  spread more evenly, but duration, tail and overflows do not change.
+- **Where the time goes**: up to about p90 all algorithms answer in tens
+  of milliseconds, then the percentile curves jump to 1 s and 3 s, the
+  SYN retransmits after a `ListenOverflow`. The algorithms differ in how
+  many requests reach that step: `lc` 3.5 % (2 cores) and 8 % (1 core),
+  `pe3` 4.5 % and 9 %, `pe2` and `po2` 5 % and 10 %. Peak EWMA has the
+  better median (it prefers the currently fastest servers), but these
+  overflow more often, and one second of waiting outweighs many saved
+  milliseconds.
+
+### A central load balancer ("ext") with enough CPU
+
+In the main pass `ext` was limited by the edge (2 threads, `Idle_pct` 1).
+Again on 2026-11-01 with 6 threads and 6 CPUs on a c3-16, with `lc` on
+the same cluster as reference (duration s / mean ms / p99 ms / share of
+the requests at 1 s or more):
+
+| cores | lc on the sidecars | ext, edge with 6 threads | ext against lc |
+|---|---|---|---|
+| 4 | 256 / 46 / 1046 / 1.5 % | 279 / 60 / 1057 / 2 % | 9 % slower |
+| 2 | 258 / 73 / 1063 / 3.5 % | 258 / 72 / 1069 / 2.5 % | the same |
+| 1 | 295 / 175 / 1312 / 8 % | 301 / 184 / 2292 / 6 % | 2 % slower |
+
+- The central edge spreads the load best: it sees every request, so
+  under contention fewer requests reach the 1 s step and the services
+  overflow less (12469 against 17481 at 2 cores).
+- But every call takes one more hop, one more connection: about 10 ms
+  more at the median, and a SYN retransmit can now hit two hops (p99 at
+  1 core 2.3 s instead of 1.3 s, 367 connection retries of the sidecars
+  instead of 27).
+- 2019 found `ext` about 3 % better than leastconn on the sidecars and 7 %
+  better than the power of two on the sidecars. In 2026 it matches
+  leastconn under contention and is slower without it; against the power
+  of two on the sidecars (main pass) it is 13 to 14 % faster under
+  contention.
+- It needs CPU: with 2 threads the edge itself was the bottleneck (644 s
+  instead of 279 s at 4 cores).
 
 ## What we learned so far
 
