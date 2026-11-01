@@ -179,25 +179,44 @@ OVH MKS, haload, `MESH_PROTO=h1`, conntrack raised (step 1), 400
 clients. Each cell: duration (s) / mean (ms) / p99.9 (ms) /
 `ListenOverflows` / maximum load of a server.
 
-Main pass, 2026-10-31 (HAProxy with the peak EWMA sample "Tr"):
+Full pass, 2026-11-01, all tests of 2019 plus peak EWMA, on one cluster,
+with the edge on 6 threads (HAProxy with the peak EWMA sample "Tr",
+`results/mytime/20261101_115712_full`):
 
 | cores | rnd | po2 | rr | lc | ext | pe2 | pe3 |
 |---|---|---|---|---|---|---|---|
-| 4 | 295/77/3074/35263/458 | 261/50/1261/14014/84 | 261/50/1265/14485/185 | 259/50/1261/13779/66 | 644/304/1459/4682/154 (*) | 258/48/1250/13249/115 | **253/45/1071/11406/113** |
-| 2 | 354/172/4098/66879/637 | 296/111/3080/32811/169 | 319/136/4035/48754/525 | **274/90/3070/22696/121** | 391/207/1484/11062/155 (*) | 296/111/3076/33827/166 | 293/108/3080/30752/153 |
-| 1 | 434/395/7582/97304/522 (127 failed) | 351/265/4223/48266/177 | 431/382/7959/94250/456 (296 failed) | 315/208/3385/31992/139 | 313/207/4110/23023/125 | 321/220/3521/39557/175 | **311/201/3318/33167/153** |
+| 4 | 257/49/1268/17118/156 | 245/39/1062/8851/59 | **243/38/1062/8574/66** | **243/39/1061/8482/54** | 281/60/1090/1937/70 (1 failed) | 245/40/1061/9331/77 | **243/39/1061/8467/80** |
+| 2 | 311/126/3078/45363/311 | 279/94/3064/27866/128 | 288/101/3070/32415/196 | **265/80/3062/19890/103** | **265/79/3080/14775/90** | 282/97/3064/29456/145 | 272/86/3060/23920/129 |
+| 1 | 339/247/4317/55749/387 (3 failed) | 304/190/3287/33457/149 | 313/201/4057/38247/269 | **296/176/3146/26602/127** | 299/181/4102/23835/114 | 306/195/3279/35110/166 | 299/183/3287/30301/154 |
+
+- **Without contention** (4 cores) all algorithms are the same, except
+  random and `ext`, which pays for its extra hop.
+- **Under contention** the ranking of 2019 holds, seven years later on
+  completely different infrastructure: leastconn and the central
+  edge first, then `pe3`, the power of two and `pe2`, round robin, and
+  random far behind. Random is the only one with failures.
+- `ext` has the fewest `ListenOverflows` everywhere (it sees every
+  request), but is not faster than leastconn: every call takes one more
+  hop (see below).
+- Peak EWMA does not beat leastconn: `pe3` lies between leastconn and the
+  power of two, `pe2` with the power of two. It loads single servers more
+  (maximum load 129 to 166 against 103 to 127 for leastconn).
+
+An earlier pass on another cluster (2026-10-31, edge with 2 threads, so
+`ext` limited by the CPU of the edge at 4 and 2 cores) gave the same
+ranking, with larger gaps and with `pe3` slightly ahead of leastconn at 4
+and 1 cores:
+
+| cores | rnd | po2 | rr | lc | ext | pe2 | pe3 |
+|---|---|---|---|---|---|---|---|
+| 4 | 295/77/3074/35263/458 | 261/50/1261/14014/84 | 261/50/1265/14485/185 | 259/50/1261/13779/66 | 644/304/1459/4682/154 (*) | 258/48/1250/13249/115 | 253/45/1071/11406/113 |
+| 2 | 354/172/4098/66879/637 | 296/111/3080/32811/169 | 319/136/4035/48754/525 | 274/90/3070/22696/121 | 391/207/1484/11062/155 (*) | 296/111/3076/33827/166 | 293/108/3080/30752/153 |
+| 1 | 434/395/7582/97304/522 (127 failed) | 351/265/4223/48266/177 | 431/382/7959/94250/456 (296 failed) | 315/208/3385/31992/139 | 313/207/4110/23023/125 | 321/220/3521/39557/175 | 311/201/3318/33167/153 |
 
 (*) limited by the CPU of the edge (2 threads, `Idle_pct` 1).
 
-The ranking of 2019 holds, with larger gaps: leastconn, then the power
-of two, round robin and random far behind. `pe3` is about as good as
-leastconn: slightly ahead at 4 and 1 cores in this pass, slightly behind
-at 1 core on 2026-11-01 (below), clearly behind at 2 cores. `pe2` is not
-better than `po2`. Peak EWMA loads single servers more (maximum load 113
-to 175 against 66 to 139 for leastconn).
-
-Two variants on 2026-11-01 (another cluster, so compared with a new `lc`
-run on the same cluster):
+Two variants on 2026-11-01, each with its own `lc` run as reference on
+the same cluster:
 
 | cores | lc | pe2 | pe3 | po2 |
 |---|---|---|---|---|
@@ -226,7 +245,7 @@ run on the same cluster):
 
 ### A central load balancer ("ext") with enough CPU
 
-In the main pass `ext` was limited by the edge (2 threads, `Idle_pct` 1).
+On 2026-10-31 `ext` was limited by the edge (2 threads, `Idle_pct` 1).
 Again on 2026-11-01 with 6 threads and 6 CPUs on a c3-16, with `lc` on
 the same cluster as reference (duration s / mean ms / p99 ms / share of
 the requests at 1 s or more):
@@ -246,9 +265,9 @@ the requests at 1 s or more):
   instead of 27).
 - 2019 found `ext` about 3 % better than leastconn on the sidecars and 7 %
   better than the power of two on the sidecars. In 2026 it matches
-  leastconn under contention and is slower without it; against the power
-  of two on the sidecars (main pass) it is 13 to 14 % faster under
-  contention.
+  leastconn under contention and is slower without it (16 % in the full
+  pass); against the power of two on the sidecars it is 5 % (2 cores) and
+  2 % (1 core) faster in the full pass.
 - It needs CPU: with 2 threads the edge itself was the bottleneck (644 s
   instead of 279 s at 4 cores).
 
