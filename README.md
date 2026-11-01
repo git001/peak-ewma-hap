@@ -41,8 +41,9 @@ slow server (at most 5 concurrent requests per server in the gRPC test, up
 to 12 with peak EWMA, up to 21 with random(2)). Peak EWMA uses the
 outstanding requests too; the response time it adds brought no measurable
 gain here, and these runs do not tell apart how much of the gap comes from
-the sample size and how much from the late signal (a run with random(3)
-without peak-ewma would). Peak EWMA only won when servers were slow for a
+the sample size and how much from the late signal (two runs would:
+random(3) without peak-ewma, and peak EWMA over all servers with the Lua
+prototype). Peak EWMA only won when servers were slow for a
 long time for a reason that the number of requests does not show. For
 servers of different capacity, `leastconn` with a matching `weight` per
 server is the simpler tool (not measured against peak EWMA here), with
@@ -50,9 +51,11 @@ server is the simpler tool (not measured against peak EWMA here), with
 503 attracts the traffic with both algorithms).
 
 The [2019 conclusion](https://www.haproxy.com/blog/power-of-two-load-balancing)
-still holds in 2026: HAProxy's leastconn beats the power of two (with
-gRPC sidecars it matches it) and avoids bursts of traffic onto a single
-server, with a single load balancer as well as with many sidecars. A
+is supported by these runs: HAProxy's leastconn was as good as or better
+than the power of two (better under CPU contention with 2 and 1 cores,
+about equal with 4 cores and with gRPC sidecars; one run per cell) and
+avoided bursts of traffic onto a single server, with a single load
+balancer as well as with many sidecars. A
 central load balancer for the calls between the services spreads the
 load best, as it sees every request, but costs one more hop per call: in
 2026 it matches leastconn on the sidecars under contention and is slower

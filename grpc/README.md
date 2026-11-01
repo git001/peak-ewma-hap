@@ -136,8 +136,10 @@ topology only: `central` ran first, while the JVMs still collected more.
   over: up to 12 piled up, with plain random(2) up to 21. With the central
   balancer random(2) peak-ewma beat plain random(2), so the estimate adds
   something, but not enough to make up for the sample. These runs do not
-  separate the sample size from the late signal; a run with random(3)
-  without peak-ewma would.
+  separate the sample size from the late signal. Two runs would:
+  random(3) without peak-ewma shows what the third draw brings, and peak
+  EWMA over all 12 servers (the Lua prototype with 0 draws) what the
+  estimate brings without a sample.
 - In the percentile chart of the sidecar mode, the step of the GC pauses
   (from 3 ms to over 20 ms) starts at about p96 with leastconn and p94
   with the others: fewer requests run into a pause.
