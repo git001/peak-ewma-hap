@@ -66,9 +66,18 @@ on that server could do much of the same with leastconn (not measured).
 
 Mailing list:
 
+- [RFC PATCH 0/6] backend: peak EWMA option for balance random
+  (withdrawn, for the archive)
+  (https://www.mail-archive.com/haproxy@formilux.org/msg47712.html),
+  the core patch measured here
 - [PATCH 0/2] backend: better use of the draws of balance random
   (https://www.mail-archive.com/haproxy@formilux.org/msg47703.html),
-  found with this test bed
+  found with this test bed. Willy Tarreau answered on 2026-11-13 that he
+  will merge a one-line variant of the first patch (the best server so
+  far is passed as the server to avoid, so a draw never returns it
+  again) and the doc patch
+- the closing comment on GitHub issue #1570
+  (https://github.com/haproxy/haproxy/issues/1570#issuecomment-6850432247)
 - the review of a first attempt in February 2026
   (https://www.mail-archive.com/haproxy@formilux.org/msg46569.html)
 
@@ -283,7 +292,10 @@ implementation sent 2.5% (2 draws) and 0.5% (3 draws) of the requests to the
 slow servers: `random` could draw the same server twice, and with 16 points
 per server the shares of the hash ring range from 2.0% to 4.1%. The Lua
 prototype draws distinct servers uniformly, which is why it did better at
-first.
+first. Upstream takes a simpler fix than the one measured here: instead
+of drawing again, the best server so far is skipped on the ring, so no
+draw is lost. The numbers above were measured with the redraw patch, not
+with that variant.
 
 Lessons about the test bed itself:
 
